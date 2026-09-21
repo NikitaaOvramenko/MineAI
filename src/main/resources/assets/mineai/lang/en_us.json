@@ -1,0 +1,19 @@
+{
+  "itemGroup.mineai": "Example Mod Tab",
+  "block.mineai.example_block": "Example Block",
+  "item.mineai.example_item": "Example Item",
+
+  "mineai.configuration.title": "MineAi Configs",
+  "mineai.configuration.section.mineai.common.toml": "MineAi Configs",
+  "mineai.configuration.section.mineai.common.toml.title": "MineAi Configs",
+  "mineai.configuration.items": "Item List",
+  "mineai.configuration.logDirtBlock": "Log Dirt Block",
+  "mineai.configuration.magicNumberIntroduction": "Magic Number Text",
+  "mineai.configuration.magicNumber": "Magic Number",
+  "mineai.configuration.provider": "AI Provider",
+  "mineai.configuration.openaiApiKey": "OpenAI API Key",
+  "mineai.configuration.openaiModel": "OpenAI Model",
+  "mineai.configuration.anthropicApiKey": "Anthropic API Key",
+  "mineai.configuration.anthropicWorkspaceId": "Anthropic Workspace ID",
+  "mineai.configuration.anthropicModel": "Claude Model"
+}
