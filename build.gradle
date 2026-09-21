@@ -118,23 +118,53 @@ configurations {
     // SPIKE: declare LangChain4j once and put it on both the compile classpath and the dev run
     // classpath. ModDevGradle does not feed 'implementation' deps to runs -- runs read
     // 'additionalRuntimeClasspath', so a plain 'implementation' compiles but NoClassDefFounds in game.
+    // Neither reaches the built jar; that is what the jarJar list below is for.
     lc4j
     implementation.extendsFrom lc4j
     additionalRuntimeClasspath.extendsFrom lc4j
 }
 
 dependencies {
-    // SPIKE: LangChain4j as a third provider. Dev runtime only so far - shipping it in the mod
-    // jar still needs jarJar or shadow. Pulls in Jackson (~2.3 MB), which Minecraft does not have.
+    // SPIKE: LangChain4j as a third provider. Pulls in Jackson, which Minecraft does not have.
     lc4j('dev.langchain4j:langchain4j-anthropic:1.20.0') {
         // Minecraft pins slf4j-api with 'strictly 2.0.9', so LangChain4j's 2.0.18 fails to resolve.
         // Minecraft supplies slf4j at runtime and 2.0.x is API-compatible, so drop the transitive one.
         exclude group: 'org.slf4j', module: 'slf4j-api'
     }
+    // The mod jar embeds everything lc4j needs at runtime, via NeoForge Jar-in-Jar (about 3.3 MB,
+    // half of it jackson-databind). ModDevGradle's jarJar is not transitive, so every jar is listed,
+    // at the version the dev run and tests use; checkJarJar below fails the build if this list and
+    // lc4j drift apart. jspecify is only annotations, but mutiny-zero's module-info requires it, and
+    // a missing required module stops the game from starting at all.
+    // NeoForge loads one copy of each library across all mods: the newest one inside every mod's
+    // range. So each range runs from the tested version up to the next major, which lets this mod
+    // share Jackson with other mods instead of refusing to load next to them.
+    [
+            'dev.langchain4j:langchain4j-anthropic'         : '1.20.0',
+            'dev.langchain4j:langchain4j-core'              : '1.20.0',
+            'dev.langchain4j:langchain4j-http-client'       : '1.20.0',
+            'dev.langchain4j:langchain4j-http-client-jdk'   : '1.20.0',
+            'dev.langchain4j:langchain4j-reactive-streaming': '1.20.0-beta30',
+            'io.smallrye.reactive:mutiny-zero'              : '1.3.1',
+            'org.jspecify:jspecify'                         : '1.0.1',
+            'com.fasterxml.jackson.core:jackson-annotations': '2.22',
+            'com.fasterxml.jackson.core:jackson-core'       : '2.22.1',
+            'com.fasterxml.jackson.core:jackson-databind'   : '2.22.1',
+    ].each { module, tested ->
+        def nextMajor = (tested.tokenize('.')[0] as int) + 1
+        jarJar(module) {
+            version {
+                strictly "[$tested,${nextMajor}.0)"
+                prefer tested
+            }
+        }
+    }
 
     testImplementation 'junit:junit:4.13.2'
     // Minecraft supplies Gson in-game; plain unit tests need their own runtime copy.
     testRuntimeOnly 'com.google.code.gson:gson:2.10.1'
+    // The same goes for slf4j, which LangChain4j logs through (slf4j is excluded from lc4j above).
+    testRuntimeOnly 'org.slf4j:slf4j-api:2.0.9'
     // Example optional mod dependency with JEI
     // The JEI API is declared for compile time use, while the full JEI artifact is used at runtime
     // compileOnly "mezz.jei:jei-${mc_version}-common-api:${jei_version}"
@@ -157,6 +187,44 @@ dependencies {
     // http://www.gradle.org/docs/current/userguide/artifact_dependencies_tutorial.html
     // http://www.gradle.org/docs/current/userguide/dependency_management.html
 }
+
+// The dev run and the tests get LangChain4j from lc4j, never from the jar, so a jar missing one of
+// its dependencies only fails in game, with a NoClassDefFoundError. Compare the jarJar list with
+// everything lc4j puts on the runtime classpath instead.
+def lc4jModules = configurations.lc4j.dependencies.collect { "$it.group:$it.name".toString() }
+def runtimeGraph = configurations.runtimeClasspath.incoming.resolutionResult.rootComponent
+// As group:name:version strings: the configuration cache can't store the artifact results themselves.
+def jarsOf = { Configuration configuration ->
+    configuration.incoming.artifacts.resolvedArtifacts.map { it*.id*.componentIdentifier*.displayName as Set }
+}
+def runtimeJars = jarsOf(configurations.runtimeClasspath)
+def embeddedJars = jarsOf(configurations.jarJar)
+def checkJarJar = tasks.register('checkJarJar') {
+    group = 'verification'
+    description = 'Checks that the jar embeds exactly the jars LangChain4j needs at runtime.'
+    doLast {
+        // Walk the runtime graph from the modules lc4j declares.
+        def reachable = [] as Set
+        def pending = runtimeGraph.get().dependencies
+                .findAll { it instanceof ResolvedDependencyResult }*.selected
+                .findAll { it.moduleVersion.module.toString() in lc4jModules }
+        while (pending) {
+            def component = pending.pop()
+            if (reachable.add(component.id.displayName)) {
+                pending += component.dependencies.findAll { it instanceof ResolvedDependencyResult && !it.constraint }*.selected
+            }
+        }
+        // Only components with a jar count: platforms such as jackson-bom are in the graph too.
+        def needed = runtimeJars.get().findAll { it in reachable }
+        def embedded = embeddedJars.get()
+        if (needed != embedded) {
+            throw new GradleException("The jarJar list in build.gradle does not match what lc4j needs at runtime. " +
+                    "Missing: ${needed - embedded}. Not needed: ${embedded - needed}. " +
+                    "Libraries Minecraft already ships belong in an exclude on lc4j, like slf4j.")
+        }
+    }
+}
+tasks.named('jarJar') { dependsOn checkJarJar }
 
 // This block of code expands all declared replace properties in the specified resource targets.
 // A missing property will result in an error. Properties are expanded using ${} Groovy notation.
@@ -198,6 +266,9 @@ publishing {
 
 tasks.withType(JavaCompile).configureEach {
     options.encoding = 'UTF-8' // Use the UTF-8 charset for Java compilation
+    // Keep parameter names in class files: LangChain4j shows them to the model as tool argument
+    // names, which would otherwise be arg0, arg1, ...
+    options.compilerArgs << '-parameters'
 }
 
 // IDEA no longer automatically downloads sources/javadoc jars for dependencies, so we need to explicitly enable the behavior.

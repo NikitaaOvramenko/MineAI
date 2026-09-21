@@ -1,5 +1,6 @@
 package io.github.nikitaaovramenko.mineai;
 
+import java.util.List;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
@@ -9,6 +10,9 @@ import org.slf4j.Logger;
 
 import com.mojang.brigadier.arguments.StringArgumentType;
 import com.mojang.logging.LogUtils;
+
+import io.github.nikitaaovramenko.mineai.tools.ToolContext;
+import io.github.nikitaaovramenko.mineai.tools.ToolRegistry;
 
 import net.minecraft.commands.Commands;
 import net.minecraft.commands.CommandSourceStack;
@@ -158,7 +162,11 @@ public class MineAi {
         }
         source.sendSuccess(() -> Component.literal("[MineAi] Thinking..."), false);
         var server = source.getServer();
-        provider.ask(apiKey, model, prompt, Config.ANTHROPIC_WORKSPACE_ID.get().trim()).whenComplete((answer, error) -> {
+        List<Object> tools = ToolRegistry.create(new ToolContext(server, playerId));
+        // Tools touch the world, so they run on the server thread. executeIfPossible refuses once the
+        // server has stopped, where execute would run the task on the calling network thread instead.
+        provider.ask(apiKey, model, prompt, Config.ANTHROPIC_WORKSPACE_ID.get().trim(), tools,
+                server::executeIfPossible).whenComplete((answer, error) -> {
             pendingPrompts.remove(playerId);
             if (server.isStopped()) {
                 return;

@@ -1,9 +1,11 @@
 package io.github.nikitaaovramenko.mineai;
 
 import java.util.Arrays;
+import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.Executor;
 import java.util.stream.Collectors;
 
 // The providers /ai can talk to. Each one owns its config option names so error messages can
@@ -49,11 +51,15 @@ enum AiProvider {
     }
 
     // anthropicWorkspaceId is Anthropic-only and may be blank; the OpenAI branch ignores it.
-    CompletableFuture<String> ask(String apiKey, String model, String prompt, String anthropicWorkspaceId) {
+    // Only the LangChain4j provider calls tools, running them on toolExecutor. The parameters are
+    // plain JDK types so the other providers work without LangChain4j on the classpath.
+    CompletableFuture<String> ask(String apiKey, String model, String prompt, String anthropicWorkspaceId,
+            List<Object> tools, Executor toolExecutor) {
         return switch (this) {
             case OPENAI -> OpenAiClient.ask(apiKey, model, prompt);
             case ANTHROPIC -> AnthropicClient.ask(apiKey, anthropicWorkspaceId, model, prompt);
-            case ANTHROPIC_LANGCHAIN4J -> LangChain4jClient.ask(apiKey, anthropicWorkspaceId, model, prompt);
+            case ANTHROPIC_LANGCHAIN4J ->
+                    LangChain4jClient.ask(apiKey, anthropicWorkspaceId, model, prompt, tools, toolExecutor);
         };
     }
 

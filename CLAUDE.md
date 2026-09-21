@@ -7,12 +7,16 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 MineAi is a Minecraft **NeoForge 1.21.1** mod (Java 21) that adds a server-side `/ai <prompt>` command
 forwarding prompts to an AI provider. Mod id `mineai`, package `io.github.nikitaaovramenko.mineai`.
 
-Two providers are supported, selected by the `provider` config key:
+Two providers are supported, plus a LangChain4j spike, selected by the `provider` config key:
 
 | `provider` | Endpoint | Key / model options |
 |---|---|---|
 | `anthropic` (default) | `POST https://api.anthropic.com/v1/messages` | `anthropicApiKey`, `anthropicModel` |
 | `openai` | `POST https://api.openai.com/v1/responses` | `openaiApiKey`, `openaiModel` |
+| `anthropic-lc4j` (spike) | the Anthropic endpoint, via LangChain4j 1.20.0 | same as `anthropic` |
+
+Only `anthropic-lc4j` lets the model call tools (see `tools/`). The jar embeds LangChain4j and its
+runtime dependencies through NeoForge Jar-in-Jar, which adds about 2.9 MB.
 
 There is no backend, no conversation history, and no client/server packets of its own: every `/ai`
 invocation is an independent HTTP request made from the server (or the integrated server in
@@ -27,6 +31,7 @@ single-player), and the answer is sent back only to the requesting player.
 ./gradlew runServer      # launch dev dedicated server
 ./gradlew runData        # data generators -> src/generated/resources
 ./gradlew runGameTestServer  # run gametests headless, then exit
+./gradlew checkJarJar    # jarJar list vs. LangChain4j's runtime deps (build runs it too)
 ```
 
 Windows: `.\gradlew.bat <task>`. Single test: `./gradlew test --tests '*AnthropicClientTest.marksTruncatedAnswers'`.
@@ -49,6 +54,10 @@ Minecraft side:
   provider to its option, so callers never switch on the provider themselves.
 - **`MineAiClient.java`** — `dist = Dist.CLIENT` only; registers the NeoForge config screen. Never
   reference client classes outside this file.
+- **`tools/`** — what the model may call. `ToolRegistry.create(...)` lists the tool objects: classes
+  with LangChain4j `@Tool` methods, e.g. `WorldTools.getWorldSeed`. `ToolContext` gives them the
+  server, the asking player and `canUseCommand(...)`. New tools go here. javac runs with `-parameters`
+  so tool parameters reach the model by name instead of `arg0`.
 
 Provider side (**no Minecraft imports — keep it that way**):
 
@@ -59,6 +68,12 @@ Provider side (**no Minecraft imports — keep it that way**):
   `httpFailure(...)`, the single place HTTP status codes become player-visible text.
 - **`OpenAiClient.java` / `AnthropicClient.java`** — request building plus a package-private static
   `parseResponse(int status, String body)` that the tests drive directly.
+- **`LangChain4jClient.java`** (spike) — the Anthropic call through LangChain4j plus the tool loop:
+  `converse(...)` runs tools until the model answers, at most `MAX_TOOL_ROUNDS` times. Tests drive it
+  with a scripted `ChatModel`.
+- **`LangChain4jTools.java`** — turns tool objects into `ToolSpecification`s and runs the model's calls
+  against them (Gson binds the arguments; a throwing tool becomes an error result for the model). It
+  needs only `langchain4j-core`; the main `langchain4j` artifact (`AiServices`) would pull in OpenNLP.
 - **`RequestException.java`** — a message already safe to show a player.
 
 ### Invariants that are easy to break
@@ -67,6 +82,28 @@ Provider side (**no Minecraft imports — keep it that way**):
 access must be wrapped in `server.execute(...)`, as `askAi` does. The callback also guards with
 `server.isStopped()` and re-looks-up the player by UUID (`getPlayerList().getPlayer(playerId) != player`)
 so a disconnect or relog during a request can't leak a message to the wrong player object.
+
+**Tools run on the server thread, through `server::executeIfPossible`.** `LangChain4jTools.executeAll`
+submits each turn's calls as one task on that executor, so tool methods can touch the world directly.
+Don't use `server::execute` here: once the server has stopped, it runs the task inline on the calling
+network thread. A stopping server also drops queued tasks, hence the timeout on the tool stage;
+without it the player's `pendingPrompts` entry would never clear.
+
+**A tool must not reveal more than the player's own commands would.** `/seed` is operator-only on a
+dedicated server, so `WorldTools` checks `ToolContext.canUseCommand("seed")`, which asks the live
+command tree. Gate new tools the same way.
+
+**The jarJar list in `build.gradle` must match LangChain4j's runtime dependencies.** ModDevGradle's
+jarJar isn't transitive, so every embedded jar is listed by hand. The dev run and the tests get
+LangChain4j from the `lc4j` configuration, never from the jar, so a missing jar would only show up as a
+`NoClassDefFoundError` in a real install. `checkJarJar` (run by `build`) fails when the list and `lc4j`
+drift apart, e.g. after a LangChain4j bump. Libraries Minecraft already ships, like slf4j, are excluded
+from `lc4j` instead of embedded.
+
+**Don't turn on `returnThinking` in `LangChain4jClient`.** Replayed tool-call turns go back without
+their thinking blocks, which adaptive-thinking models accept. LangChain4j 1.20.0 can't replay them
+correctly anyway: its Anthropic mapper drops empty (omitted-display) thinking blocks and joins several
+blocks' signatures into one, and the API rejects modified blocks.
 
 **Error messages must never contain the API response body.** `AiClients.httpFailure` maps status codes
 to fixed strings; raw bodies can echo back credentials or request details. Both
@@ -91,9 +128,10 @@ Empty or unparseable output raises `RequestException` rather than returning a bl
 (90s vs. 60s) because current Claude models think adaptively by default and that thinking shares the
 output budget and the wall clock with the reply.
 
-Gson is supplied by Minecraft at runtime; plain unit tests get their own copy via the `testRuntimeOnly`
-declaration in `build.gradle`. There is no provider SDK dependency by design — a mod jar would have to
-bundle it via jarJar/shadow and risk classloader conflicts with Minecraft's own libraries.
+Gson and slf4j are supplied by Minecraft at runtime; plain unit tests get their own copies via the
+`testRuntimeOnly` declarations in `build.gradle`. LangChain4j is the only provider library, bundled as
+above; otherwise there is no provider SDK dependency by design, since each would need the same
+bundling and risks classloader conflicts with Minecraft's own libraries.
 
 ### Metadata and resources
 
