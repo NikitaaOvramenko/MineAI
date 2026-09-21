@@ -10,6 +10,6 @@ public final class ToolRegistry {
     private ToolRegistry() {}
 
     public static List<Object> create(ToolContext context) {
-        return List.of(new WorldTools(context));
+        return List.of(new WorldTools(context), new StorageTools(context), new PlayerActions(context));
     }
 }

@@ -11,6 +11,7 @@ import org.slf4j.Logger;
 import com.mojang.brigadier.arguments.StringArgumentType;
 import com.mojang.logging.LogUtils;
 
+import io.github.nikitaaovramenko.mineai.tools.PlacedContainers;
 import io.github.nikitaaovramenko.mineai.tools.ToolContext;
 import io.github.nikitaaovramenko.mineai.tools.ToolRegistry;
 
@@ -89,6 +90,8 @@ public class MineAi {
         ITEMS.register(modEventBus);
         // Register the Deferred Register to the mod event bus so tabs get registered
         CREATIVE_MODE_TABS.register(modEventBus);
+        // The attachment that marks containers players placed, for StorageTools.
+        PlacedContainers.ATTACHMENT_TYPES.register(modEventBus);
 
         // Register ourselves for server and other game events we are interested in.
         // Note that this is necessary if and only if we want *this* class (MineAi) to respond directly to events.

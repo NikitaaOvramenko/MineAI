@@ -57,7 +57,13 @@ Minecraft side:
 - **`tools/`** — what the model may call. `ToolRegistry.create(...)` lists the tool objects: classes
   with LangChain4j `@Tool` methods, e.g. `WorldTools.getWorldSeed`. `ToolContext` gives them the
   server, the asking player and `canUseCommand(...)`. New tools go here. javac runs with `-parameters`
-  so tool parameters reach the model by name instead of `arg0`.
+  so tool parameters reach the model by name instead of `arg0`. `PlacedContainers` tags player-made
+  storage with a NeoForge data attachment (registered in `MineAi`'s constructor), since Minecraft
+  doesn't record who placed anything: chests, barrels and shulker boxes get the placer's UUID from the
+  block place event. Chest minecarts and boats have no place event, so they get the nil UUID when they
+  join the level new *and* without a loot table. World generation also adds its mineshaft minecarts as
+  new entities, but always with one. Chested donkeys, mules and llamas need no tag: only a tamed animal
+  takes a chest, so it has an owner.
 
 Provider side (**no Minecraft imports — keep it that way**):
 
@@ -89,9 +95,12 @@ Don't use `server::execute` here: once the server has stopped, it runs the task 
 network thread. A stopping server also drops queued tasks, hence the timeout on the tool stage;
 without it the player's `pendingPrompts` entry would never clear.
 
-**A tool must not reveal more than the player's own commands would.** `/seed` is operator-only on a
-dedicated server, so `WorldTools` checks `ToolContext.canUseCommand("seed")`, which asks the live
-command tree. Gate new tools the same way.
+**A tool must not reveal more than the player could find out themselves.** A tool that does what a
+command does checks `ToolContext.canUseCommand(...)`, which asks the live command tree: `/seed` and
+`/locate` are operator-only on a dedicated server, and `/locate` needs cheats in single-player.
+`StorageTools` has no command to mirror, so it only reads player-made storage (see `PlacedContainers`)
+near the player that is already loaded, and never reads an unopened loot chest, because that would
+generate its loot. Storage placed before the tagging existed is invisible to it.
 
 **The jarJar list in `build.gradle` must match LangChain4j's runtime dependencies.** ModDevGradle's
 jarJar isn't transitive, so every embedded jar is listed by hand. The dev run and the tests get
