@@ -1,5 +1,6 @@
 package io.github.nikitaaovramenko.mineai;
 
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -20,7 +21,11 @@ import dev.langchain4j.model.output.FinishReason;
 // library costs and whether it survives NeoForge class loading. Reuses the anthropic* config keys.
 // Unlike the plain clients it lets the model call tools (see the tools package).
 final class LangChain4jClient {
-    private static final int MAX_OUTPUT_TOKENS = 4000;
+    // Thinking and the reply share this budget, and the reply may be a whole building (BuildTools.planBuild).
+    // converse drops a tool call cut off by it rather than running half a blueprint.
+    private static final int MAX_OUTPUT_TOKENS = 16000;
+    // LangChain4j's default read timeout is 60s, too short for thinking through a blueprint.
+    private static final Duration TIMEOUT = Duration.ofSeconds(180);
     // Room for a few lookups per prompt; a model that keeps calling tools is cut off.
     private static final int MAX_TOOL_ROUNDS = 5;
 
@@ -92,7 +97,8 @@ final class LangChain4jClient {
         AnthropicChatModel.AnthropicChatModelBuilder builder = AnthropicChatModel.builder()
                 .apiKey(apiKey)
                 .modelName(model)
-                .maxTokens(MAX_OUTPUT_TOKENS);
+                .maxTokens(MAX_OUTPUT_TOKENS)
+                .timeout(TIMEOUT);
         if (!workspaceId.isBlank()) {
             builder.customHeaders(Map.of("anthropic-workspace-id", workspaceId));
         }

@@ -10,6 +10,10 @@ import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.Tool;
 import dev.langchain4j.agent.tool.ToolExecutionRequest;
 import dev.langchain4j.data.message.ToolExecutionResultMessage;
+import dev.langchain4j.model.chat.request.json.JsonAnyOfSchema;
+import dev.langchain4j.model.chat.request.json.JsonArraySchema;
+import dev.langchain4j.model.chat.request.json.JsonEnumSchema;
+import dev.langchain4j.model.chat.request.json.JsonObjectSchema;
 
 import static org.junit.Assert.*;
 
@@ -31,8 +35,37 @@ public class LangChain4jToolsTest {
         }
     }
 
+    sealed interface Shape permits Circle, Square {}
+
+    record Circle(int radius) implements Shape {}
+
+    record Square(int side) implements Shape {}
+
+    enum Speed { SLOW, FAST }
+
+    static class ShapeTools {
+        @Tool("Describes shapes.")
+        String describe(List<Shape> shapes) {
+            return shapes.toString();
+        }
+
+        @Tool("Makes shapes.")
+        List<Shape> make() {
+            return List.of(new Circle(2), new Square(3));
+        }
+
+        @Tool("Moves.")
+        String move(@P(value = "How fast", defaultValue = "SLOW") Speed speed) {
+            return speed.name();
+        }
+    }
+
     private static LangChain4jTools tools() {
         return new LangChain4jTools(List.of(new SampleTools()), Runnable::run);
+    }
+
+    private static LangChain4jTools shapeTools() {
+        return new LangChain4jTools(List.of(new ShapeTools()), Runnable::run);
     }
 
     private static ToolExecutionRequest call(String name, String arguments) {
@@ -95,5 +128,47 @@ public class LangChain4jToolsTest {
     public void rejectsDuplicateToolNames() {
         assertThrows(IllegalArgumentException.class,
                 () -> new LangChain4jTools(List.of(new SampleTools(), new SampleTools()), Runnable::run));
+    }
+
+    @Test
+    public void describesSealedTypesAsAChoiceOfTaggedObjects() {
+        var describe = shapeTools().specifications().stream()
+                .filter(specification -> specification.name().equals("describe"))
+                .findFirst().orElseThrow();
+        var shapes = (JsonArraySchema) describe.parameters().properties().get("shapes");
+        var options = ((JsonAnyOfSchema) shapes.items()).anyOf();
+        assertEquals(2, options.size());
+        var circle = (JsonObjectSchema) options.get(0);
+        assertEquals(List.of("Circle"), ((JsonEnumSchema) circle.properties().get("type")).enumValues());
+        assertTrue(circle.properties().containsKey("radius"));
+    }
+
+    @Test
+    public void bindsSealedTypesByTheirTypeProperty() {
+        var result = shapeTools().execute(call("describe",
+                "{\"shapes\": [{\"type\": \"Circle\", \"radius\": 2}, {\"type\": \"Square\", \"side\": 3}]}"));
+        assertFalse(failed(result));
+        assertEquals("[Circle[radius=2], Square[side=3]]", result.text());
+    }
+
+    @Test
+    public void writesTheTypePropertyBackSoResultsCanBeSentAgain() {
+        String made = shapeTools().execute(call("make", "{}")).text();
+        assertEquals("[{\"type\":\"Circle\",\"radius\":2},{\"type\":\"Square\",\"side\":3}]", made);
+        assertEquals("[Circle[radius=2], Square[side=3]]",
+                shapeTools().execute(call("describe", "{\"shapes\": " + made + "}")).text());
+    }
+
+    @Test
+    public void namesTheValidTypesWhenOneIsUnknown() {
+        var result = shapeTools().execute(call("describe", "{\"shapes\": [{\"type\": \"Triangle\"}]}"));
+        assertTrue(failed(result));
+        assertTrue(result.text(), result.text().contains("Circle, Square"));
+    }
+
+    @Test
+    public void fillsInEnumDefaults() {
+        assertEquals("SLOW", shapeTools().execute(call("move", "{}")).text());
+        assertEquals("FAST", shapeTools().execute(call("move", "{\"speed\": \"FAST\"}")).text());
     }
 }

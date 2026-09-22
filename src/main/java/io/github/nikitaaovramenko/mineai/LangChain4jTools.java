@@ -1,10 +1,12 @@
 package io.github.nikitaaovramenko.mineai;
 
+import java.io.IOException;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.lang.reflect.Parameter;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
@@ -15,10 +17,17 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import com.google.gson.Gson;
+import com.google.gson.GsonBuilder;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
+import com.google.gson.JsonParseException;
 import com.google.gson.JsonParser;
 import com.google.gson.JsonPrimitive;
+import com.google.gson.TypeAdapter;
+import com.google.gson.TypeAdapterFactory;
+import com.google.gson.reflect.TypeToken;
+import com.google.gson.stream.JsonReader;
+import com.google.gson.stream.JsonWriter;
 
 import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.Tool;
@@ -26,12 +35,17 @@ import dev.langchain4j.agent.tool.ToolExecutionRequest;
 import dev.langchain4j.agent.tool.ToolSpecification;
 import dev.langchain4j.agent.tool.ToolSpecifications;
 import dev.langchain4j.data.message.ToolExecutionResultMessage;
+import dev.langchain4j.internal.PolymorphicTypes;
 
 // The tool objects of one /ai request as LangChain4jClient sees them: specifications for the model,
 // and the model's calls run against them. Minecraft-free on purpose, like the clients.
 final class LangChain4jTools {
     private static final Logger LOGGER = LoggerFactory.getLogger(LangChain4jTools.class);
-    private static final Gson GSON = new Gson();
+    // No HTML escaping: results are read by the model, which would otherwise see = as =.
+    private static final Gson GSON = new GsonBuilder()
+            .registerTypeAdapterFactory(new PolymorphicAdapterFactory())
+            .disableHtmlEscaping()
+            .create();
     // A stopping server drops its queued tasks, and a call that never runs would otherwise leave the
     // player's request pending for good.
     private static final long TOOL_TIMEOUT_SECONDS = 30;
@@ -81,8 +95,9 @@ final class LangChain4jTools {
             }
             Method method = binding.method();
             Object result = method.invoke(binding.target(), arguments(method, request.arguments()));
+            // The declared type, not the runtime one, so a List<SealedType> keeps its "type" properties.
             text = method.getReturnType() == void.class ? "Done."
-                    : result instanceof String string ? string : GSON.toJson(result);
+                    : result instanceof String string ? string : GSON.toJson(result, method.getGenericReturnType());
         } catch (ReflectiveOperationException | RuntimeException exception) {
             Throwable cause = exception instanceof InvocationTargetException ? exception.getCause() : exception;
             LOGGER.warn("Tool {} failed", request.name(), cause);
@@ -116,7 +131,8 @@ final class LangChain4jTools {
         JsonElement value = arguments.get(name);
         if ((value == null || value.isJsonNull()) && annotation != null
                 && !P.NO_DEFAULT.equals(annotation.defaultValue())) {
-            value = parameter.getType() == String.class
+            // Strings and enum constants are written bare in the annotation, everything else as JSON.
+            value = parameter.getType() == String.class || parameter.getType().isEnum()
                     ? new JsonPrimitive(annotation.defaultValue())
                     : JsonParser.parseString(annotation.defaultValue());
         }
@@ -127,5 +143,62 @@ final class LangChain4jTools {
             return null;
         }
         return GSON.fromJson(value, parameter.getParameterizedType());
+    }
+
+    // LangChain4j describes a sealed interface to the model as a choice of objects, each with a "type"
+    // property naming its record. Gson knows no such thing, so this reads the property to pick the record,
+    // and writes it back so a tool's result can be sent in again. The naming rules are LangChain4j's own
+    // (PolymorphicTypes), so the schema the model sees and the parsing can't drift apart.
+    private static final class PolymorphicAdapterFactory implements TypeAdapterFactory {
+        @Override
+        public <T> TypeAdapter<T> create(Gson gson, TypeToken<T> type) {
+            Class<? super T> baseType = type.getRawType();
+            if (!PolymorphicTypes.isPolymorphic(baseType)) {
+                return null;
+            }
+            String property = PolymorphicTypes.discriminatorPropertyName(baseType);
+            Map<String, TypeAdapter<?>> adapters = new LinkedHashMap<>();
+            Map<Class<?>, String> names = new HashMap<>();
+            for (Class<?> subtype : PolymorphicTypes.findConcreteSubtypes(baseType)) {
+                String name = PolymorphicTypes.discriminatorValue(baseType, subtype);
+                adapters.put(name, gson.getAdapter(subtype));
+                names.put(subtype, name);
+            }
+            TypeAdapter<JsonElement> elements = gson.getAdapter(JsonElement.class);
+            return new TypeAdapter<T>() {
+                @Override
+                @SuppressWarnings("unchecked")
+                public void write(JsonWriter out, T value) throws IOException {
+                    if (value == null) {
+                        out.nullValue();
+                        return;
+                    }
+                    String name = names.get(value.getClass());
+                    JsonObject tagged = new JsonObject();
+                    tagged.addProperty(property, name);
+                    ((TypeAdapter<Object>) adapters.get(name)).toJsonTree(value).getAsJsonObject().entrySet()
+                            .forEach(field -> tagged.add(field.getKey(), field.getValue()));
+                    elements.write(out, tagged);
+                }
+
+                @Override
+                @SuppressWarnings("unchecked")
+                public T read(JsonReader in) throws IOException {
+                    JsonElement element = elements.read(in);
+                    if (element == null || element.isJsonNull()) {
+                        return null;
+                    }
+                    JsonElement tag = element.isJsonObject() ? element.getAsJsonObject().get(property) : null;
+                    TypeAdapter<?> adapter = tag != null && tag.isJsonPrimitive()
+                            ? adapters.get(tag.getAsString())
+                            : null;
+                    if (adapter == null) {
+                        throw new JsonParseException("Each " + baseType.getSimpleName() + " needs \"" + property
+                                + "\" set to one of " + String.join(", ", adapters.keySet()) + ", not " + tag + ".");
+                    }
+                    return (T) adapter.fromJsonTree(element);
+                }
+            };
+        }
     }
 }
