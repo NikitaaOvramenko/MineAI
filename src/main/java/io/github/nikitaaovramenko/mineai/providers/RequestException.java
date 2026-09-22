@@ -1,8 +1,8 @@
-package io.github.nikitaaovramenko.mineai;
+package io.github.nikitaaovramenko.mineai.providers;
 
 // Carries a message that is safe to show a player: never build one from an API response body.
 // The provider's own explanation goes in detail instead, which only ever reaches the server log.
-final class RequestException extends RuntimeException {
+public final class RequestException extends RuntimeException {
     private final String detail;
 
     RequestException(String message) {
@@ -14,7 +14,7 @@ final class RequestException extends RuntimeException {
         this.detail = detail;
     }
 
-    String detail() {
+    public String detail() {
         return detail;
     }
 }

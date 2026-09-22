@@ -7,16 +7,18 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 MineAi is a Minecraft **NeoForge 1.21.1** mod (Java 21) that adds a server-side `/ai <prompt>` command
 forwarding prompts to an AI provider. Mod id `mineai`, package `io.github.nikitaaovramenko.mineai`.
 
-Two providers are supported, plus a LangChain4j spike, selected by the `provider` config key:
+The `provider` config key picks one of these:
 
 | `provider` | Endpoint | Key / model options |
 |---|---|---|
 | `anthropic` (default) | `POST https://api.anthropic.com/v1/messages` | `anthropicApiKey`, `anthropicModel` |
 | `openai` | `POST https://api.openai.com/v1/responses` | `openaiApiKey`, `openaiModel` |
 | `anthropic-lc4j` (spike) | the Anthropic endpoint, via LangChain4j 1.20.0 | same as `anthropic` |
+| `google` | the Gemini API (Google AI Studio keys), via LangChain4j 1.20.0 | `googleApiKey`, `googleModel` |
 
-Only `anthropic-lc4j` lets the model call tools (see `tools/`). The jar embeds LangChain4j and its
-runtime dependencies through NeoForge Jar-in-Jar, which adds about 2.9 MB.
+Only the LangChain4j providers, `anthropic-lc4j` and `google`, let the model call tools (see
+`tools/`). The jar embeds LangChain4j and its runtime dependencies through NeoForge Jar-in-Jar, which
+adds about 3.1 MB.
 
 There is no backend, no conversation history, and no client/server packets of its own: every `/ai`
 invocation is an independent HTTP request made from the server (or the integrated server in
@@ -42,8 +44,8 @@ reconfigure — expect the first run after touching `build.gradle` to be slower.
 
 ## Architecture
 
-The package splits along one deliberate line: **Minecraft-coupled classes vs. provider clients that
-import no Minecraft at all**, so the wire-format parsing is testable with plain JUnit.
+The code splits along one deliberate line: **Minecraft-coupled classes vs. the `providers` package,
+which imports no Minecraft at all**, so the wire-format parsing is testable with plain JUnit.
 
 Minecraft side:
 
@@ -65,18 +67,24 @@ Minecraft side:
   new entities, but always with one. Chested donkeys, mules and llamas need no tag: only a tamed animal
   takes a chest, so it has an owner.
 
-Provider side (**no Minecraft imports — keep it that way**):
+Provider side, the `providers/` package (**no Minecraft imports — keep it that way**). Only
+`AiProvider` and `RequestException` are public; the clients stay package-private:
 
 - **`AiProvider.java`** — the enum of providers. Owns each provider's id, display name, config option
   names, and default model, and dispatches `ask(...)` to the right client. Adding a provider means
-  adding a constant here, a client, its two `Config` options, and the `Config` switch arms.
+  adding a constant here, a client (or a `LangChain4jClient` model), its two `Config` options, the
+  `Config` switch arms, and their `en_us.json` labels.
 - **`AiClients.java`** — shared `HttpClient`, the system prompt, the truncation note, and
   `httpFailure(...)`, the single place HTTP status codes become player-visible text.
 - **`OpenAiClient.java` / `AnthropicClient.java`** — request building plus a package-private static
   `parseResponse(int status, String body)` that the tests drive directly.
-- **`LangChain4jClient.java`** (spike) — the Anthropic call through LangChain4j plus the tool loop:
+- **`LangChain4jClient.java`** — the providers that go through LangChain4j: one `ChatModel` builder
+  each (`anthropic(...)` for the spike, `google(...)` for Gemini), plus the tool loop they share:
   `converse(...)` runs tools until the model answers, at most `MAX_TOOL_ROUNDS` times. Tests drive it
-  with a scripted `ChatModel`.
+  with a scripted `ChatModel`. `failure(...)` turns the library's exceptions into `RequestException`s.
+  Gemini's model has no async call in 1.20.0 (`chatAsync` fails with `AsyncNotSupportedException`), so
+  `call(...)` falls back to its blocking call on a virtual thread. `GoogleProviderTest` runs the real
+  Gemini model against a local stand-in server.
 - **`LangChain4jTools.java`** — turns tool objects into `ToolSpecification`s and runs the model's calls
   against them (Gson binds the arguments; a throwing tool becomes an error result for the model). It
   needs only `langchain4j-core`; the main `langchain4j` artifact (`AiServices`) would pull in OpenNLP.
@@ -109,14 +117,21 @@ LangChain4j from the `lc4j` configuration, never from the jar, so a missing jar 
 drift apart, e.g. after a LangChain4j bump. Libraries Minecraft already ships, like slf4j, are excluded
 from `lc4j` instead of embedded.
 
-**Don't turn on `returnThinking` in `LangChain4jClient`.** Replayed tool-call turns go back without
-their thinking blocks, which adaptive-thinking models accept. LangChain4j 1.20.0 can't replay them
-correctly anyway: its Anthropic mapper drops empty (omitted-display) thinking blocks and joins several
-blocks' signatures into one, and the API rejects modified blocks.
+**Don't turn on `returnThinking` for Anthropic in `LangChain4jClient`.** Replayed tool-call turns go
+back without their thinking blocks, which adaptive-thinking models accept. LangChain4j 1.20.0 can't
+replay them correctly anyway: its Anthropic mapper drops empty (omitted-display) thinking blocks and
+joins several blocks' signatures into one, and the API rejects modified blocks.
+
+**Gemini is the opposite: keep `returnThinking` and `sendThinking` on for `google`.** Gemini puts a
+thought signature on its function calls, and newer models reject a follow-up request that doesn't send
+it back unchanged. Those two options are what keep and resend it; neither asks for thought text.
 
 **Error messages must never contain the API response body.** `AiClients.httpFailure` maps status codes
 to fixed strings; raw bodies can echo back credentials or request details. Both
 `errorsDoNotExposeResponseBodies` tests assert this — don't "improve" errors by appending the body.
+The LangChain4j providers go through it too: `LangChain4jClient.failure` finds the library's
+`HttpException` among the causes. Google answers a bad key with 400 `API_KEY_INVALID` rather than 401,
+which `httpFailure` recognizes from the body without showing it.
 
 **The model is a free-form config string, so keep request bodies model-agnostic.** The Anthropic
 request deliberately sends only `model`, `max_tokens`, `system`, `messages`. `output_config.effort`
@@ -130,6 +145,8 @@ valid `anthropicModel`. Anything model-specific needs a config option and a docu
   asks for a summary); `stop_reason` carries `max_tokens` for truncation and `refusal` for a policy
   decline — **a decline is HTTP 200 with an empty `content` array**, so blank text is explained by
   `stop_reason`, never by the status code.
+- LangChain4j providers: the library parses the response, and `converse` explains blank text by the
+  finish reason in the same way (`CONTENT_FILTER` is a decline, `LENGTH` adds the truncation note).
 
 Empty or unparseable output raises `RequestException` rather than returning a blank chat line.
 

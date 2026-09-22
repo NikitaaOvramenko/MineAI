@@ -1,4 +1,4 @@
-package io.github.nikitaaovramenko.mineai;
+package io.github.nikitaaovramenko.mineai.providers;
 
 import java.util.Optional;
 
@@ -11,6 +11,7 @@ public class AiProviderTest {
     public void readsConfiguredIdsLeniently() {
         assertEquals(Optional.of(AiProvider.OPENAI), AiProvider.byId("openai"));
         assertEquals(Optional.of(AiProvider.ANTHROPIC), AiProvider.byId("  Anthropic "));
+        assertEquals(Optional.of(AiProvider.GOOGLE), AiProvider.byId("google"));
     }
 
     @Test

@@ -131,7 +131,11 @@ dependencies {
         // Minecraft supplies slf4j at runtime and 2.0.x is API-compatible, so drop the transitive one.
         exclude group: 'org.slf4j', module: 'slf4j-api'
     }
-    // The mod jar embeds everything lc4j needs at runtime, via NeoForge Jar-in-Jar (about 3.3 MB,
+    // Gemini, for the google provider. Its other dependencies are the ones langchain4j-anthropic has.
+    lc4j('dev.langchain4j:langchain4j-google-ai-gemini:1.20.0') {
+        exclude group: 'org.slf4j', module: 'slf4j-api'
+    }
+    // The mod jar embeds everything lc4j needs at runtime, via NeoForge Jar-in-Jar (about 3.6 MB,
     // half of it jackson-databind). ModDevGradle's jarJar is not transitive, so every jar is listed,
     // at the version the dev run and tests use; checkJarJar below fails the build if this list and
     // lc4j drift apart. jspecify is only annotations, but mutiny-zero's module-info requires it, and
@@ -141,6 +145,7 @@ dependencies {
     // share Jackson with other mods instead of refusing to load next to them.
     [
             'dev.langchain4j:langchain4j-anthropic'         : '1.20.0',
+            'dev.langchain4j:langchain4j-google-ai-gemini'  : '1.20.0',
             'dev.langchain4j:langchain4j-core'              : '1.20.0',
             'dev.langchain4j:langchain4j-http-client'       : '1.20.0',
             'dev.langchain4j:langchain4j-http-client-jdk'   : '1.20.0',

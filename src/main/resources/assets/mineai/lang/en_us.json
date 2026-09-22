@@ -15,5 +15,7 @@
   "mineai.configuration.openaiModel": "OpenAI Model",
   "mineai.configuration.anthropicApiKey": "Anthropic API Key",
   "mineai.configuration.anthropicWorkspaceId": "Anthropic Workspace ID",
-  "mineai.configuration.anthropicModel": "Claude Model"
+  "mineai.configuration.anthropicModel": "Claude Model",
+  "mineai.configuration.googleApiKey": "Google AI Studio API Key",
+  "mineai.configuration.googleModel": "Gemini Model"
 }

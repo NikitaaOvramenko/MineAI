@@ -11,6 +11,8 @@ import org.slf4j.Logger;
 import com.mojang.brigadier.arguments.StringArgumentType;
 import com.mojang.logging.LogUtils;
 
+import io.github.nikitaaovramenko.mineai.providers.AiProvider;
+import io.github.nikitaaovramenko.mineai.providers.RequestException;
 import io.github.nikitaaovramenko.mineai.tools.PlacedContainers;
 import io.github.nikitaaovramenko.mineai.tools.ToolContext;
 import io.github.nikitaaovramenko.mineai.tools.ToolRegistry;

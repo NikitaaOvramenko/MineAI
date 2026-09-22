@@ -4,6 +4,8 @@ import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
 
+import io.github.nikitaaovramenko.mineai.providers.AiProvider;
+
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.item.Item;
@@ -60,12 +62,22 @@ public class Config {
             .comment("Claude model used for /ai prompts. claude-haiku-4-5 is the cheaper option.")
             .define("anthropicModel", AiProvider.ANTHROPIC.defaultModel());
 
+    public static final ModConfigSpec.ConfigValue<String> GOOGLE_API_KEY = BUILDER
+            .comment("Gemini API key, from Google AI Studio (aistudio.google.com/apikey). Keep this file private.",
+                    "Used only on the server (or in single-player).")
+            .define("googleApiKey", "");
+
+    public static final ModConfigSpec.ConfigValue<String> GOOGLE_MODEL = BUILDER
+            .comment("Gemini model used for /ai prompts. gemini-3.5-flash-lite is the cheaper option.")
+            .define("googleModel", AiProvider.GOOGLE.defaultModel());
+
     static final ModConfigSpec SPEC = BUILDER.build();
 
     public static ModConfigSpec.ConfigValue<String> apiKey(AiProvider provider) {
         return switch (provider) {
             case OPENAI -> OPENAI_API_KEY;
             case ANTHROPIC, ANTHROPIC_LANGCHAIN4J -> ANTHROPIC_API_KEY;
+            case GOOGLE -> GOOGLE_API_KEY;
         };
     }
 
@@ -73,6 +85,7 @@ public class Config {
         return switch (provider) {
             case OPENAI -> OPENAI_MODEL;
             case ANTHROPIC, ANTHROPIC_LANGCHAIN4J -> ANTHROPIC_MODEL;
+            case GOOGLE -> GOOGLE_MODEL;
         };
     }
 

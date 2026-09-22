@@ -1,4 +1,4 @@
-package io.github.nikitaaovramenko.mineai;
+package io.github.nikitaaovramenko.mineai.providers;
 
 import java.net.http.HttpClient;
 import java.time.Duration;
@@ -21,7 +21,9 @@ final class AiClients {
     // The provider's explanation is attached as detail so the server log can still show it.
     static RequestException httpFailure(AiProvider provider, int status, String body) {
         String name = provider.displayName();
-        String message = switch (status) {
+        // Google answers a bad key with 400 rather than 401. The body only decides, it is never shown.
+        boolean badKey = status == 400 && body != null && body.contains("API_KEY_INVALID");
+        String message = switch (badKey ? 401 : status) {
             case 401 -> name + " rejected the API key. Check " + provider.apiKeyOption() + " in the config.";
             case 403 -> name + " denied access. Check your project and model permissions.";
             case 404 -> name + " does not know that model. Check " + provider.modelOption() + " in the config.";
@@ -34,11 +36,13 @@ final class AiClients {
         return new RequestException(message, "HTTP " + status + " " + errorSummary(body));
     }
 
-    // Both providers report failures as {"error": {"type": ..., "message": ...}}.
+    // OpenAI and Anthropic report failures as {"error": {"type": ..., "message": ...}}; Google has a
+    // "status" such as INVALID_ARGUMENT where they have "type".
     private static String errorSummary(String body) {
         try {
             JsonObject error = JsonParser.parseString(body).getAsJsonObject().getAsJsonObject("error");
-            return error.get("type").getAsString() + ": " + error.get("message").getAsString();
+            String type = (error.has("type") ? error.get("type") : error.get("status")).getAsString();
+            return type + ": " + error.get("message").getAsString();
         } catch (RuntimeException exception) {
             return "(no error details in response)";
         }

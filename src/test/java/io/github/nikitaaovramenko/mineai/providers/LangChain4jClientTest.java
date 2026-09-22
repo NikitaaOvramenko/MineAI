@@ -1,4 +1,4 @@
-package io.github.nikitaaovramenko.mineai;
+package io.github.nikitaaovramenko.mineai.providers;
 
 import java.util.ArrayDeque;
 import java.util.ArrayList;
@@ -15,6 +15,8 @@ import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.ChatMessage;
 import dev.langchain4j.data.message.ToolExecutionResultMessage;
 import dev.langchain4j.data.message.UserMessage;
+import dev.langchain4j.exception.HttpException;
+import dev.langchain4j.exception.InvalidRequestException;
 import dev.langchain4j.model.chat.ChatModel;
 import dev.langchain4j.model.chat.request.ChatRequest;
 import dev.langchain4j.model.chat.response.ChatResponse;
@@ -60,7 +62,8 @@ public class LangChain4jClientTest {
 
     private static CompletableFuture<String> converse(ChatModel model, SeedTools tools) {
         List<ChatMessage> messages = new ArrayList<>(List.of(UserMessage.from("What is the seed?")));
-        return LangChain4jClient.converse(model, messages, new LangChain4jTools(List.of(tools), Runnable::run), 3);
+        return LangChain4jClient.converse(AiProvider.GOOGLE, model, messages,
+                new LangChain4jTools(List.of(tools), Runnable::run), 3);
     }
 
     @Test
@@ -71,7 +74,7 @@ public class LangChain4jClientTest {
     }
 
     @Test
-    public void sendsToolResultsBackUntilClaudeAnswers() {
+    public void sendsToolResultsBackUntilTheModelAnswers() {
         var model = new ScriptedModel(seedCall(FinishReason.TOOL_EXECUTION), answer("The seed is 42."));
         var tools = new SeedTools();
         assertEquals("The seed is 42.", converse(model, tools).join());
@@ -85,7 +88,7 @@ public class LangChain4jClientTest {
     }
 
     @Test
-    public void givesUpWhenClaudeKeepsCallingTools() {
+    public void givesUpWhenTheModelKeepsCallingTools() {
         var model = new ScriptedModel(seedCall(FinishReason.TOOL_EXECUTION), seedCall(FinishReason.TOOL_EXECUTION),
                 seedCall(FinishReason.TOOL_EXECUTION), seedCall(FinishReason.TOOL_EXECUTION));
         var error = assertThrows(CompletionException.class, () -> converse(model, new SeedTools()).join());
@@ -99,5 +102,37 @@ public class LangChain4jClientTest {
                 () -> converse(new ScriptedModel(seedCall(FinishReason.LENGTH)), tools).join());
         assertTrue(error.getCause() instanceof RequestException);
         assertEquals(0, tools.calls);
+    }
+
+    @Test
+    public void explainsAnEmptyAnswerByWhyTheModelStopped() {
+        var declined = ChatResponse.builder().aiMessage(AiMessage.from("")).finishReason(FinishReason.CONTENT_FILTER)
+                .build();
+        var error = assertThrows(CompletionException.class,
+                () -> converse(new ScriptedModel(declined), new SeedTools()).join());
+        assertEquals("Google AI Studio declined to answer that. Try rephrasing it.", error.getCause().getMessage());
+
+        var cutOff = ChatResponse.builder().aiMessage(AiMessage.from("The seed is")).finishReason(FinishReason.LENGTH)
+                .build();
+        assertEquals("The seed is\n" + AiClients.TRUNCATION_NOTE,
+                converse(new ScriptedModel(cutOff), new SeedTools()).join());
+    }
+
+    @Test
+    public void givesHttpErrorsTheSameMessagesAsThePlainClients() {
+        // What the library throws for a bad Google key: a model exception caused by the HTTP error.
+        String body = "{\"error\": {\"code\": 400, \"message\": \"API key not valid.\","
+                + " \"status\": \"INVALID_ARGUMENT\", \"details\": [{\"reason\": \"API_KEY_INVALID\"}]}}";
+        var failure = LangChain4jClient.failure(AiProvider.GOOGLE,
+                new InvalidRequestException(new HttpException(400, body)));
+        assertEquals("Google AI Studio rejected the API key. Check googleApiKey in the config.", failure.getMessage());
+        assertEquals("HTTP 400 INVALID_ARGUMENT: API key not valid.", failure.detail());
+    }
+
+    @Test
+    public void keepsOtherLibraryErrorsOutOfChat() {
+        var failure = LangChain4jClient.failure(AiProvider.GOOGLE, new IllegalStateException("secret response"));
+        assertEquals("Google AI Studio failed. Check the server log for details.", failure.getMessage());
+        assertTrue(failure.detail().contains("secret response"));
     }
 }

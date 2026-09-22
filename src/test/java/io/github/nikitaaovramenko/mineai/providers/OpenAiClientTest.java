@@ -1,4 +1,4 @@
-package io.github.nikitaaovramenko.mineai;
+package io.github.nikitaaovramenko.mineai.providers;
 
 import org.junit.Test;
 
