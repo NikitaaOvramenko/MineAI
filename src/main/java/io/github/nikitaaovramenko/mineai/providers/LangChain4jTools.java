@@ -75,6 +75,7 @@ final class LangChain4jTools {
         String text;
         boolean failed = false;
         try {
+            LOGGER.info("AI called tool '{}' with arguments: {}", request.name(), request.arguments());
             Binding binding = bindings.get(request.name());
             if (binding == null) {
                 throw new IllegalArgumentException("There is no tool named " + request.name() + ".");
@@ -83,6 +84,7 @@ final class LangChain4jTools {
             Object result = method.invoke(binding.target(), arguments(method, request.arguments()));
             text = method.getReturnType() == void.class ? "Done."
                     : result instanceof String string ? string : GSON.toJson(result);
+            LOGGER.info("AI tool '{}' completed successfully", request.name());
         } catch (ReflectiveOperationException | RuntimeException exception) {
             Throwable cause = exception instanceof InvocationTargetException ? exception.getCause() : exception;
             LOGGER.warn("Tool {} failed", request.name(), cause);

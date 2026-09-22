@@ -56,7 +56,8 @@ public class StorageTools {
             + " boxes, minecarts and boats with chests, and donkeys, mules and llamas carrying chests. For each, its"
             + " kind, name and position, and each item's name and count. Storage the world generated is left out."
             + " Use it when the player asks what they have stored, how many of an item they own, or where"
-            + " something is.")
+            + " something is." 
+            + "In case when player wants to craft something, only mention those chests which will have enough items to craft")
     public String listNearbyContainers(@P(value = "How far from the player to look, in blocks, up to 64",
             defaultValue = "32") int radius) {
         ServerPlayer player = context.player();
