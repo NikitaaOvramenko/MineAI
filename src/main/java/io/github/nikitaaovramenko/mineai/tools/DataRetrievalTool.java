@@ -42,7 +42,8 @@ public class DataRetrievalTool {
 
     @Tool("Finds recipes that produce an item, including recipes from installed mods and custom machine recipe"
             + " types. Use it when the player asks how to make something. Returns the recipe type, recipe ID,"
-            + " output count, and ingredients. The item may be an exact ID or a simple name.")
+            + " output count, and ingredients. The item may be an exact ID or a simple name."
+            )
     public String getRecipesForItem(@P("An item ID or name, such as minecraft:diamond_pickaxe or potato_cannon")
             String itemId) {
         ResourceLocation wanted = resolveItem(itemId);
