@@ -28,7 +28,7 @@ public class DataRetrievalTool {
     @Tool("Returns items carried directly by the player.\n" + //
                 "This does not include chests or other storage.\n" + //
                 "When deciding whether the player owns enough materials to craft something,\n" + //
-                "call findItemForCrafting for each material that is still missing.")
+                "call findItemInStorage for each material that is still missing.")
     public List<String> getInventoryItems() {
         var inventory = context.player().getInventory();
 

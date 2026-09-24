@@ -12,7 +12,13 @@ final class AiClients {
     static final HttpClient HTTP = HttpClient.newBuilder()
             .connectTimeout(Duration.ofSeconds(10)).build();
 
-    static final String SYSTEM_PROMPT = "Reply concisely in plain text suitable for Minecraft chat.";
+    static final String SYSTEM_PROMPT = "Reply concisely in plain text suitable for Minecraft chat."
+            + " When tools are available and the player asks to find, locate, or show items in storage,"
+            + " call findItemInStorage, then call highlightStorage for each matching storage position returned."
+            + " Send all matching highlightStorage calls together in one tool round."
+            + " Highlight automatically without asking for confirmation, unless the player asks not to highlight."
+            + " Only use positions returned by the tools, and only say storage was highlighted after the"
+            + " highlightStorage calls succeed. If nothing matches, report that without highlighting.";
     static final String TRUNCATION_NOTE = "[Response reached its output limit.]";
 
     private AiClients() {}

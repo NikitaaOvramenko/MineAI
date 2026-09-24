@@ -6,6 +6,7 @@ import java.util.function.Supplier;
 import io.github.nikitaaovramenko.mineai.MineAi;
 
 import net.minecraft.Util;
+import net.minecraft.client.color.block.BlockColor;
 import net.minecraft.core.UUIDUtil;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.entity.vehicle.ContainerEntity;
@@ -14,6 +15,7 @@ import net.neoforged.bus.api.SubscribeEvent;
 import net.neoforged.fml.common.EventBusSubscriber;
 import net.neoforged.neoforge.attachment.AttachmentType;
 import net.neoforged.neoforge.attachment.IAttachmentHolder;
+import net.neoforged.neoforge.client.event.RegisterColorHandlersEvent;
 import net.neoforged.neoforge.event.entity.EntityJoinLevelEvent;
 import net.neoforged.neoforge.event.level.BlockEvent;
 import net.neoforged.neoforge.registries.DeferredRegister;
@@ -49,6 +51,20 @@ public final class PlacedContainers {
             blockEntity.setData(PLACED_BY, player.getUUID());
         }
     }
+
+    // @SubscribeEvent
+    // public static void onRegisterBlockColors(RegisterColorHandlersEvent.Block event) {
+    //     // Define your custom block color logic
+    //     BlockColor customColorHandler = (state, blockAndTintGetter, pos, tintIndex) -> {
+    //         if (tintIndex == 0) {
+    //             return 0xFF0000; // Returns Red for tint index 0
+    //         }
+    //         return -1; // Default/no color change
+    //     };
+
+    //     // Register the handler to your specific block
+    //     event.register(customColorHandler, ModBlocks.YOUR_CUSTOM_BLOCK.get());
+    // }
 
     // Entities have no place event. A chest minecart or boat that joins the level new rather than loaded
     // from disk was just made by a player, a dispenser or a command. World generation adds its mineshaft
