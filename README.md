@@ -25,7 +25,6 @@ a previewed outline, and only builds once the player confirms.
 
 [demo-build-two-floor-house.webm](https://github.com/user-attachments/assets/624d26bd-2a81-47e1-a60a-1f70d6f282b4)
 
-<video src="docs/media/demo-build-two-floor-house.webm" controls muted width="100%"></video>
 
 **Finding crafting materials across player storage**: the model is asked for
 everything needed to craft a pickaxe, calls the storage tools to search
@@ -34,7 +33,6 @@ nearby player-placed chests, and reports back what it found and where.
 [demo-storage-tool-call.webm](https://github.com/user-attachments/assets/0bb1dc8a-6f9e-4284-a987-6da142911ae7)
 
 
-<video src="docs/media/demo-storage-tool-call.webm" controls muted width="100%"></video>
 
 ## What it does
 
