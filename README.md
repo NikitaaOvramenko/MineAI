@@ -7,22 +7,28 @@
 ![Java 21](https://img.shields.io/badge/Java-21-blue)
 
 **Talk to Claude from inside Minecraft.** MineAI is a server-side NeoForge
-mod that adds a `/ai <prompt>` command: type a question or request in chat,
-and an LLM answers — with the ability to call back into the live game world
-through function calling (checking the seed, locating structures, reading
-your inventory, searching player-built storage, even placing a block).
+mod that adds a `/ai <prompt>` command: type a request in chat, and an LLM
+answers — with the ability to call back into the live game world through
+function calling, from checking the seed and searching player storage to
+planning and building an entire structure from a description.
 
-> 🚧 **Work in progress.** Core chat + tool calling works today; memory and
-> retrieval-augmented context are on the [roadmap](#roadmap).
+> 🚧 **Work in progress.** Core chat, tool calling and the AI building system
+> work today; memory and retrieval-augmented context are on the
+> [roadmap](#roadmap).
 
 ## Demo
 
-<!--
-  TODO: drop real media here, e.g.:
-  ![MineAI demo](docs/media/demo.gif)
-  <img src="docs/media/screenshot-tools.png" width="600" alt="MineAI locating a village">
--->
-_Screenshots and a demo video coming soon._
+**Building a two-floor house from a single prompt**, answered by Claude
+Haiku 4.5: the model designs a blueprint, plans it in front of the player as
+a previewed outline, and only builds once the player confirms.
+
+<video src="docs/media/demo-build-two-floor-house.webm" controls muted width="100%"></video>
+
+**Finding crafting materials across player storage**: the model is asked for
+everything needed to craft a pickaxe, calls the storage tools to search
+nearby player-placed chests, and reports back what it found and where.
+
+<video src="docs/media/demo-storage-tool-call.webm" controls muted width="100%"></video>
 
 ## What it does
 
@@ -36,7 +42,8 @@ _Screenshots and a demo video coming soon._
 - **One request at a time per player** — a second `/ai` while one is still
   in flight gets a "please wait" message instead of queuing or racing.
 - **Function calling into the running world.** With a LangChain4j-backed
-  provider, the model can call tools to look things up or act — see below.
+  provider, the model can call tools to look things up, search storage,
+  place a block, or plan and build an entire structure — see below.
 
 ## Tools (function calling)
 
@@ -56,11 +63,25 @@ never sees or does more than the player already could.
 | `listNearbyContainers` | Lists nearby storage the *player* placed — chests, barrels, shulker boxes, storage minecarts/boats, chested tamed animals — and everything inside, skipping naturally-generated loot chests. |
 | `findItemInStorage` | Searches that same tracked storage for a specific item and reports how much is available and where. |
 | `highlightStorage` | Marks a storage location with particles, visible only to the requesting player, for about 10 seconds. |
+| `planBuild` | Turns a described building into a blueprint, previews it in front of the player as an outline, and waits for confirmation — nothing is placed yet. |
+| `getPendingBuild` | Returns the plan currently waiting for confirmation, so the model can revise it and resubmit. |
+| `findBlocks` | Looks up block ids by keyword (including modded blocks), for when the model isn't sure what a block is actually called. |
 
 Storage tools only ever see player-placed containers: a NeoForge block-place
 listener tags each chest/barrel/shulker box (and chest minecart/boat) with
 its placer's UUID the moment it enters the world, so an unopened dungeon
 chest is never exposed to the model and never has its loot generated early.
+
+### AI building: plan, preview, confirm, undo
+
+`planBuild` is deliberately not "the model edits the world directly." Asking
+for a build only ever stages a plan — the player sees the outline and a
+[Confirm] button in chat, and nothing changes until they run
+`/mineai confirm` (building requires the same rights as `/fill`). A finished
+build can be taken back with `/mineai undo`, or a staged plan dropped with
+`/mineai cancel`. `ADD` mode only fills empty space and never breaks a
+block; `REPLACE` mode matches the blueprint exactly, clearing what's in the
+way except containers.
 
 ## Providers
 
@@ -74,7 +95,8 @@ chest is never exposed to the model and never has its loot generated early.
 Claude is the default and primary provider. The two direct-HTTP clients
 (`anthropic`, `openai`) are deliberately minimal and model-agnostic; the two
 LangChain4j-routed providers share one tool-calling loop that runs the
-model's requested tools and feeds the results back until it answers.
+model's requested tools and feeds the results back until it answers — this
+is what powers both demos above.
 
 ## Architecture
 
@@ -89,8 +111,12 @@ tests, no Minecraft launch required.
 - Tools run on the server thread through NeoForge's task executor so they
   can touch the world directly, with a timeout so a stopping server can't
   strand a pending request.
-- LangChain4j is bundled into the jar via NeoForge Jar-in-Jar (~3.1 MB) so
-  the mod has no external runtime dependency beyond the game itself.
+- A build is planned instantly (in memory, as a diff against the world) but
+  built in batches over several ticks so placing hundreds of blocks never
+  freezes the server, and every placed block is recorded so it can be
+  undone later.
+- LangChain4j is bundled into the jar via NeoForge Jar-in-Jar so the mod has
+  no external runtime dependency beyond the game itself.
 
 ## Getting started
 
@@ -122,7 +148,7 @@ openaiModel = "gpt-4.1-mini"
 ```
 
 ```toml
-# Claude with tool calling, via LangChain4j
+# Claude with tool calling and AI building, via LangChain4j
 provider = "anthropic-lc4j"
 anthropicApiKey = "your-api-key"
 anthropicModel = "claude-opus-5"
@@ -148,7 +174,7 @@ it with a real key in it.
 |---|---|---|
 | `provider` | `anthropic` | One of `anthropic`, `openai`, `anthropic-lc4j`, `google`. |
 | `anthropicApiKey` | *(empty)* | Shared by `anthropic` and `anthropic-lc4j`. |
-| `anthropicModel` | `claude-opus-5` | `claude-haiku-4-5` is the cheaper, faster option. |
+| `anthropicModel` | `claude-opus-5` | `claude-haiku-4-5` is the cheaper, faster option — see the build demo above. |
 | `anthropicWorkspaceId` | *(empty)* | Optional, for keys not already scoped to a workspace. |
 | `openaiApiKey` | *(empty)* | |
 | `openaiModel` | `gpt-4.1-mini` | |

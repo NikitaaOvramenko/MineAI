@@ -5,7 +5,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Project
 
 MineAi is a Minecraft **NeoForge 1.21.1** mod (Java 21) that adds a server-side `/ai <prompt>` command
-forwarding prompts to an AI provider. Mod id `mineai`, package `io.github.nikitaaovramenko.mineai`.
+forwarding prompts to an AI provider, plus `/mineai confirm|cancel|undo` for buildings the AI plans.
+Mod id `mineai`, package `io.github.nikitaaovramenko.mineai`.
 
 The `provider` config key picks one of these:
 
@@ -65,7 +66,14 @@ Minecraft side:
   block place event. Chest minecarts and boats have no place event, so they get the nil UUID when they
   join the level new *and* without a loot table. World generation also adds its mineshaft minecarts as
   new entities, but always with one. Chested donkeys, mules and llamas need no tag: only a tamed animal
-  takes a chest, so it has an owner.
+  takes a chest, so it has an owner. `ToolContext.origin()` is where the player stood and faced when
+  they sent `/ai` (`RequestOrigin`), captured before the model starts thinking.
+- **`building/`** — the Minecraft half of AI building. `tools/BuildTools.planBuild` hands the model's
+  `Blueprint` to `BuildPlanner`, which compiles it, puts it in a `BuildFrame` in front of the request's
+  origin, resolves its blocks with the `/setblock` parser (`BlockResolver`) and diffs it against the
+  world. The plan waits in `PendingBuilds` (a particle outline, chat buttons) until the player runs
+  `/mineai confirm` (`BuildCommands`). `BuildJobs` then places it over several ticks, and `BuildHistory`
+  keeps each player's last five builds for `/mineai undo`. All of it lives in memory.
 
 Provider side, the `providers/` package (**no Minecraft imports — keep it that way**). Only
 `AiProvider` and `RequestException` are public; the clients stay package-private:
@@ -88,6 +96,13 @@ Provider side, the `providers/` package (**no Minecraft imports — keep it that
 - **`LangChain4jTools.java`** — turns tool objects into `ToolSpecification`s and runs the model's calls
   against them (Gson binds the arguments; a throwing tool becomes an error result for the model). It
   needs only `langchain4j-core`; the main `langchain4j` artifact (`AiServices`) would pull in OpenNLP.
+  LangChain4j shows the model a sealed interface as a choice of objects told apart by a `"type"`
+  property naming the record; `PolymorphicAdapterFactory` reads and writes that with LangChain4j's own
+  naming rules (`PolymorphicTypes`), so a tool's result can be sent back in as an argument.
+- **`blueprint/`** — the Minecraft-free half of AI building: the `Blueprint` the model fills in (one
+  sealed `BuildOperation` record per step, with `@Description`s as the model's only documentation),
+  `BlueprintCompiler` (operations → `TargetGrid` of Place / Remove / keep) and `BuildDiff` (grid plus
+  existing blocks plus `BuildMode` → changes, generic over the block-state type). All unit-tested.
 - **`RequestException.java`** — a message already safe to show a player.
 
 ### Invariants that are easy to break
@@ -109,6 +124,25 @@ command does checks `ToolContext.canUseCommand(...)`, which asks the live comman
 `StorageTools` has no command to mirror, so it only reads player-made storage (see `PlacedContainers`)
 near the player that is already loaded, and never reads an unopened loot chest, because that would
 generate its loot. Storage placed before the tagging existed is invisible to it.
+
+**AI building changes the world only through `BuildJobs`, after the player confirms.** Planning,
+confirming and undoing all need `/fill` rights (`ToolContext.canUseCommand(source, "fill")`), and a
+blueprint may cover at most the `commandModificationBlockLimit` game rule's blocks, like `/fill`. Other
+rules:
+- `BuildPlanner.requireInWorld` must pass before a block of the area is read, so no chunk is loaded.
+- The diff is taken when the plan is made. Building skips every block that changed since, and undo skips
+  every block that changed since the build, so neither overwrites what someone did in between.
+- ADD mode never replaces a block that isn't replaceable. REPLACE never touches block entities,
+  unbreakable blocks, or half of a door or bed.
+- Blocks are set with `UPDATE_CLIENTS | UPDATE_KNOWN_SHAPE`, and a final pass gives the neighbour and
+  shape updates, as `/fill` and structure placement do. Updating while placing would let half a door
+  pop off and drop.
+- A build posts the break and place events a player's hand would. That lets claim mods refuse, and it is
+  how `PlacedContainers` learns about the chests a build places.
+
+Blueprint directions (block `[properties]`, stair and door facings) call forward "north" and right
+"east". `BuildFrame.rotation()` turns them to the world, per block, with NeoForge's position-aware
+`rotate`. Renaming a `BuildOperation` record or field changes what the model must send.
 
 **The jarJar list in `build.gradle` must match LangChain4j's runtime dependencies.** ModDevGradle's
 jarJar isn't transitive, so every embedded jar is listed by hand. The dev run and the tests get
@@ -152,7 +186,8 @@ Empty or unparseable output raises `RequestException` rather than returning a bl
 
 `AnthropicClient` uses a larger `MAX_OUTPUT_TOKENS` (4000 vs. OpenAI's 800) and a longer timeout
 (90s vs. 60s) because current Claude models think adaptively by default and that thinking shares the
-output budget and the wall clock with the reply.
+output budget and the wall clock with the reply. `LangChain4jClient` goes further (16000 tokens, 180s),
+because one of its replies can be a whole blueprint.
 
 Gson and slf4j are supplied by Minecraft at runtime; plain unit tests get their own copies via the
 `testRuntimeOnly` declarations in `build.gradle`. LangChain4j is the only provider library, bundled as

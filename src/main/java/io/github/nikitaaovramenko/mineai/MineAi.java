@@ -14,6 +14,7 @@ import com.mojang.logging.LogUtils;
 import io.github.nikitaaovramenko.mineai.providers.AiProvider;
 import io.github.nikitaaovramenko.mineai.providers.RequestException;
 import io.github.nikitaaovramenko.mineai.tools.PlacedContainers;
+import io.github.nikitaaovramenko.mineai.tools.RequestOrigin;
 import io.github.nikitaaovramenko.mineai.tools.ToolContext;
 import io.github.nikitaaovramenko.mineai.tools.ToolRegistry;
 
@@ -167,7 +168,7 @@ public class MineAi {
         }
         source.sendSuccess(() -> Component.literal("[MineAi] Thinking..."), false);
         var server = source.getServer();
-        List<Object> tools = ToolRegistry.create(new ToolContext(server, playerId));
+        List<Object> tools = ToolRegistry.create(new ToolContext(server, playerId, RequestOrigin.of(player)));
         // Tools touch the world, so they run on the server thread. executeIfPossible refuses once the
         // server has stopped, where execute would run the task on the calling network thread instead.
         provider.ask(apiKey, model, prompt, Config.ANTHROPIC_WORKSPACE_ID.get().trim(), tools,
