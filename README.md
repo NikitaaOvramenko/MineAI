@@ -22,11 +22,17 @@ planning and building an entire structure from a description.
 Haiku 4.5: the model designs a blueprint, plans it in front of the player as
 a previewed outline, and only builds once the player confirms.
 
+
+[demo-build-two-floor-house.webm](https://github.com/user-attachments/assets/624d26bd-2a81-47e1-a60a-1f70d6f282b4)
+
 <video src="docs/media/demo-build-two-floor-house.webm" controls muted width="100%"></video>
 
 **Finding crafting materials across player storage**: the model is asked for
 everything needed to craft a pickaxe, calls the storage tools to search
 nearby player-placed chests, and reports back what it found and where.
+
+[demo-storage-tool-call.webm](https://github.com/user-attachments/assets/0bb1dc8a-6f9e-4284-a987-6da142911ae7)
+
 
 <video src="docs/media/demo-storage-tool-call.webm" controls muted width="100%"></video>
 
